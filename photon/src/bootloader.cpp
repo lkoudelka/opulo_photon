@@ -2,6 +2,7 @@
 #include "stm32f0xx_hal.h"
 #include "stm32f0xx.h"
 #include "stm32_def.h"
+#include <Arduino.h>
 
 #define SYSMEM_ADDRESS 0x1FFFEC00
 
@@ -59,6 +60,53 @@ void reboot_into_bootloader() {
     __set_MSP(*(__IO uint32_t*)SYSMEM_ADDRESS);
     __enable_irq();
     ((void (*)(void)) jump_address)();
+
+    while(1);
+}
+
+
+// --- bus loader (PBL) --------------------------------------------------------
+
+#define PBL_HEADER_ADDRESS 0x08007C00u
+#define PBL_HEADER_MAGIC   0x314C4250u   // "PBL1"
+
+struct PblHeader {
+    uint32_t magic;
+    uint16_t version;
+    uint16_t reserved;
+    uint32_t entry_app;     // void entry(uint32_t bus_address), thumb
+    uint32_t entry_reset;
+};
+
+static const PblHeader *pbl_header() {
+    return (const PblHeader *)PBL_HEADER_ADDRESS;
+}
+
+uint8_t bus_loader_version() {
+    const PblHeader *h = pbl_header();
+    const uint32_t e = h->entry_app & ~1u;
+    if (h->magic != PBL_HEADER_MAGIC || e < PBL_HEADER_ADDRESS || e >= PBL_HEADER_ADDRESS + 1024u) {
+        return 0;
+    }
+    return (uint8_t)h->version;
+}
+
+void bus_loader_enter(uint8_t address) {
+    const uint32_t entry = pbl_header()->entry_app;
+
+    // let the reply leave the transceiver (26 B at 57600 baud = 4.5 ms)
+    delay(10);
+
+    // Same clean-up as reboot_into_bootloader(): PBL relies on reset-state
+    // clocks (HSI 8 MHz) and peripherals, and runs with IRQs disabled.
+    HAL_RCC_DeInit();
+    HAL_DeInit();
+    SysTick->CTRL = 0;
+    SysTick->LOAD = 0;
+    SysTick->VAL = 0;
+    __disable_irq();
+
+    ((void (*)(uint32_t))entry)(address);
 
     while(1);
 }

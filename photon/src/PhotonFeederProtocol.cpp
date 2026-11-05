@@ -2,6 +2,7 @@
 #include "PhotonNetworkLayer.h"
 
 #include "rs485/protocols/checksums/crc8_107.h"
+#include "bootloader.h"
 
 #define MAX_PROTOCOL_VERSION 1
 
@@ -249,6 +250,32 @@ void PhotonFeederProtocol::handleVendorOptions() {
         .status = STATUS_OK,
         .vendorOptions = VendorOptionsResponse(),
     };
+
+    // Bus loader (PBL): 0x20 = info, 0x21 = enter (see bootloader.h)
+    const uint8_t sub = command.vendorOptions.options[0];
+    if (sub == PBL_VENDOR_INFO || sub == PBL_VENDOR_ENTER) {
+        uint8_t *o = response.vendorOptions.options;
+        const uint8_t pblVersion = bus_loader_version();
+        o[0] = 'P';
+        o[1] = 'B';
+        o[2] = 'L';
+        o[3] = PBL_APP_PROTOCOL;
+        o[4] = pblVersion;
+
+        const bool enter = sub == PBL_VENDOR_ENTER && pblVersion != 0 &&
+            memcmp(&command.vendorOptions.options[1], PBL_ENTER_MAGIC, 4) == 0;
+        if (sub == PBL_VENDOR_ENTER && !enter) {
+            response.status = STATUS_FAIL;
+        }
+
+        transmitResponse(sizeof(VendorOptionsResponse));
+
+        if (enter) {
+            // motors are idle here; HAL_DeInit() in bus_loader_enter() also stops the timers
+            bus_loader_enter(_network->getLocalAddress());
+        }
+        return;
+    }
 
     _feeder->vendorSpecific(command.vendorOptions.options, response.vendorOptions.options);
 

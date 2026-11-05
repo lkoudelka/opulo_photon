@@ -1,0 +1,4 @@
+bootloader/build/
+sim/pbl_sim
+out/
+__pycache__/
