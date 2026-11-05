@@ -34,7 +34,7 @@ def make_app(release, version, entry=True, size=31660):
     m = re.search(rb"v\d+\.\d+\.\d+[0-9A-Za-z.+\-]*\0", bytes(d))
     assert m, "release version string not found"
     n = m.end() - m.start() - 1                 # keep the length: same layout
-    d[m.start():m.end()] = version.encode().ljust(n, b"_")[:n] + b"\0"
+    d[m.start():m.end()] = version.encode().ljust(n, b"-")[:n] + b"\0"
     if entry:
         d += b"PBL!"
     d += bytes((7 * k) & 0xFF for k in range(max(0, size - len(d))))   # non-0xFF filler
