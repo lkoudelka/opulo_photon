@@ -44,7 +44,9 @@ class PhotonFeeder {
         void brakePeel();
         void brakeDrive();
         void halt();
-        void set_rgb(bool red, bool green, bool blue);
+        // static: uses only the LED pin defines, so it is valid before the feeder object exists
+        // (setup() switches the LEDs off before constructing the feeder)
+        static void set_rgb(bool red, bool green, bool blue);
         uint16_t calculateExpectedFeedTime(uint8_t distance, bool forward);
         void setMmPosition(uint16_t position); 
         void resetEncoderPosition(uint16_t position);
