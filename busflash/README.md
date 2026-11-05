@@ -119,8 +119,13 @@ With `-DPBL_HW_CRC` it uses the CRC peripheral and saves ~8 B, but that is not v
 | B10 | Feeder moved to another slot while in PBL | Answers on its *old* address (documented limitation) |
 | B11 | Dongle-flash a plain release `.bin` with CubeProgrammer defaults | `scan` shows "no bus-update entry". Check the PBL page with CubeProgrammer read: still `PBL1` at 0x08007C00. |
 
+**Measure the bus first:** `photon-busflash.sh ping --addr N` gives the M485 round-trip time (min / median / max, lost replies) and the expected update time per feeder.
+
 **Phase C: one-time fleet migration**
-- Each feeder gets `*-factory.bin` with the documented dongle procedure, one last manual flash.
+- Each feeder gets `*-factory.bin` with the documented dongle procedure, one last manual flash. `busflash/dongle.sh flash IMAGE` does it from the command line with the docs' settings (UART 9600, even parity):
+  - It first saves the feeder's UID and **complete original firmware** (`~/claude/opulo/_feeder-backups/<uuid>-<time>.bin`, sha256), so `dongle.sh restore` can put back exactly what was there.
+  - It then writes, verifies and starts the image. The motherboard port is never used.
+  - Tested against a simulated programmer CLI (`busflash/tests/test_dongle.sh`).
 - Check whether the dongle reaches the programming holes with the feeder mounted (study §9.5).
 
 **Phase D: routine updates**

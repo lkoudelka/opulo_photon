@@ -13,6 +13,7 @@ OpenPnP (or anything else using the serial port) must be disconnected.
 
 Sub-commands:
   scan                         list feeders on the bus
+  ping --addr N                M485 round-trip time + bus update time estimate
   info IMAGE                   check an image before flashing
   flash IMAGE --addr N [N..]   update selected feeders
   flash IMAGE --all            update every feeder that needs it
@@ -394,12 +395,42 @@ def cmd_make_factory(a):
     return 0
 
 
+def cmd_ping(bus, a):
+    """M485 round trip to one feeder (study 9.4): RTT statistics and update-time estimate."""
+    times, lost = [], 0
+    for _ in range(a.count):
+        t0 = time.monotonic()
+        r = bus.transact(a.addr, GET_FEEDER_ID, retries=0)
+        dt = time.monotonic() - t0
+        if r is None:
+            lost += 1
+        else:
+            times.append(dt)
+    if not times:
+        print(f"addr {a.addr}: no reply in {a.count} tries")
+        return 1
+    times.sort()
+    med = times[len(times) // 2]
+    print(f"addr {a.addr}: {len(times)}/{a.count} replies, {lost} lost; RTT min {times[0]*1000:.1f} / median "
+          f"{med*1000:.1f} / max {times[-1]*1000:.1f} ms")
+    size = 24740
+    if a.image:
+        size = len(Image.load(a.image).data)
+    writes, pages = -(-size // WRITE_MAX), -(-size // PAGE)
+    est = writes * med + pages * (med + T_ERASE) + T_COMMIT + T_BOOT + 40 * med
+    print(f"estimated bus update of a {size} B image: about {est:.0f} s per feeder "
+          f"({writes} write packets, {pages} pages)")
+    return 0
+
+
 def cmd_bus(a):
     bus = MarlinBus(a.port or find_port(), a.baud)
     try:
         if a.cmd == "scan":
             scan(bus, a.first, a.last)
             return 0
+        if a.cmd == "ping":
+            return cmd_ping(bus, a)
         img = Image.load(a.image)
         if img.problems:
             raise SystemExit("image rejected: " + "; ".join(img.problems))
@@ -451,6 +482,9 @@ def main(argv=None):
 
     s = sub.add_parser("scan"); s.add_argument("--first", type=int, default=1); s.add_argument("--last", type=int, default=50)
     s = sub.add_parser("info"); s.add_argument("image")
+    s = sub.add_parser("ping", help="M485 round-trip time to one feeder + update time estimate")
+    s.add_argument("--addr", type=int, required=True); s.add_argument("--count", type=int, default=100)
+    s.add_argument("--image", help="estimate for this image (default 24,740 B)")
     for name in ("flash", "recover"):
         s = sub.add_parser(name)
         s.add_argument("image")
