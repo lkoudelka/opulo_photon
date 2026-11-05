@@ -76,7 +76,8 @@ class PhotonFeeder {
 
         uint8_t _retry_limit = 3;
 
-        String _version = VERSION_STRING;
+        // firmware version text (VERSION_STRING, "debug" if built without one)
+        const char *_version;
         
         bool _beefy_boi = false;
         bool _first_feed_since_load = true;

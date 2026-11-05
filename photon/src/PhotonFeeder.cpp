@@ -73,6 +73,7 @@ PhotonFeeder::PhotonFeeder(
     _led_red(led_red),
     _led_green(led_green),
     _led_blue(led_blue),
+    _version(VERSION_STRING[0] != '\0' ? VERSION_STRING : "debug"),
     _position(0),
     _encoder(encoder) {
 
@@ -84,10 +85,6 @@ PhotonFeeder::PhotonFeeder(
     pinMode(_led_red, OUTPUT);
     pinMode(_led_green, OUTPUT);
     pinMode(_led_blue, OUTPUT);
-
-    if(_version == ""){
-        _version = "debug";
-    }
 
 }
 
@@ -136,7 +133,7 @@ void PhotonFeeder::identify() {
 void PhotonFeeder::showVersion() {
     delay(500);
 
-    if(_version.indexOf("debug") >= 0){ // flashing red, beta
+    if(strstr(_version, "debug") != nullptr){ // flashing red, beta
         set_rgb(true, false, false);
         delay(250);
         set_rgb(false, false, false);
@@ -156,13 +153,11 @@ void PhotonFeeder::showVersion() {
 void PhotonFeeder::vendorSpecific(uint8_t options[VENDOR_SPECIFIC_OPTIONS_LENGTH], uint8_t* response) {
     uint8_t command = options[0];
 
-    int len = _version.length();
-
     // Commands 0x00 - 0x0F get the firmware version string in chunks. The firmware version string may be smaller than
     // the allotted 7 chunks, but it is null-terminated as expected.
     if(command <= 0x0F) {
-        const auto start_index = min(size_t(command) * VENDOR_SPECIFIC_OPTIONS_LENGTH, _version.length());
-        const auto chunk = _version.c_str() + start_index;
+        const auto start_index = min(size_t(command) * VENDOR_SPECIFIC_OPTIONS_LENGTH, strlen(_version));
+        const auto chunk = _version + start_index;
 
         // NOTE: Using strncpy here specifically because we want its behavior where it handles encountering a null byte
         // in the src string.
