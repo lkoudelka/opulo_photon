@@ -100,6 +100,32 @@ class PhotonFeeder {
         bool moveForwardSequenceGT4(uint16_t tenths_mm, bool first_attempt);
 
         bool moveBackwardSequence(bool forward, uint16_t tenths_mm);
+
+        // --- building blocks shared by the move sequences ---
+        typedef bool (PhotonFeeder::*ForwardSequence)(uint16_t tenths_mm, bool first_attempt);
+        bool moveForwardWithRetries(ForwardSequence sequence, uint16_t tenths_mm, int &retry_index);
+
+        // goal position in tenths of mm and in encoder ticks (absolute, see feedGoal())
+        struct FeedGoal {
+            signed long mm;
+            signed long tick_precise;   // thousandths of a tick
+            int tick;
+        };
+        FeedGoal feedGoal(signed long goal_mm);
+        void adoptGoalPosition(const FeedGoal &goal);
+
+        // tick history used to detect a stalled (or settled) drive motor
+        struct StallMonitor {
+            int tick_history[20];
+            int tick_history_index;
+            int delta;                  // max - min over the history
+            uint32_t last_sample_time;
+            void reset();
+            void record(int current_tick);
+        };
+
+        void peelForForwardFeed(uint16_t tenths_mm);
+        void finishForwardMove(StallMonitor &stall, const FeedGoal &goal);
 };
 
 #endif //_PHOTON_FEEDER_H

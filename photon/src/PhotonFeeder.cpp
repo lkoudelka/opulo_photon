@@ -3,6 +3,7 @@
 #include "define.h"
 #include "versions.h"
 #include <vector>
+#include <string.h>
 
 // --------------------
 
@@ -431,64 +432,19 @@ bool PhotonFeeder::moveForward(uint16_t tenths_mm) {
 
     // less than 2mm movements
     if (tenths_mm < 20){
-        
         //move forward very small distance
-        if(!moveForwardSequenceLT2(tenths_mm, true)){ // if it fails, try again with a fresh pulse of power after moving the motor back a bit.
-            while(true){
-                retry_index++;
-
-                // // if we're on our second to last attempt, we should absolutely be considered a beefy boi
-                // if(retry_index + 1 == _retry_limit){
-                //     _beefy_boi = true;
-                // }
-                
-                // if we've failed at all, switch to beefy boi
-                _beefy_boi = true;
-
-                if(retry_index > _retry_limit){
-                    _lastFeedStatus = PhotonFeeder::FeedResult::COULDNT_REACH;
-                    return false;
-                }
-                drive(false);
-                delay(50);
-                halt();
-                if(moveForwardSequenceLT2(tenths_mm, false)){
-                    break;
-                }
-            }
+        if(!moveForwardWithRetries(&PhotonFeeder::moveForwardSequenceLT2, tenths_mm, retry_index)){
+            return false;
         }
-        
     }
 
     // 2-4mm movements
     // if we're feeding a distance from 2mm to 4mm, we should do it very precisely
     else if (tenths_mm >= 20 && tenths_mm <= 40){
         // move forward somewhere between 20-40 tenths
-        if(!moveForwardSequence2_4(tenths_mm, true)){ // if it fails, try again with a fresh pulse of power after moving the motor back a bit.
-            while(true){
-                retry_index++;
-
-                // // if we're on our second to last attempt, we should absolutely be considered a beefy boi
-                // if(retry_index + 1 == _retry_limit){
-                //     _beefy_boi = true;
-                // }
-                
-                // if we've failed at all, switch to beefy boi
-                _beefy_boi = true;
-
-                if(retry_index > _retry_limit){
-                    _lastFeedStatus = PhotonFeeder::FeedResult::COULDNT_REACH;
-                    return false;
-                }
-                drive(false);
-                delay(50);
-                halt();
-                if(moveForwardSequence2_4(tenths_mm, false)){
-                    break;
-                }
-            }
+        if(!moveForwardWithRetries(&PhotonFeeder::moveForwardSequence2_4, tenths_mm, retry_index)){
+            return false;
         }
-        
     }
     
     // >4mm movements
@@ -499,58 +455,16 @@ bool PhotonFeeder::moveForward(uint16_t tenths_mm) {
         // quot is the number of 1 pip loops we run
         for(int i = 0;i<result.quot;i++){
             // move forward 40 tenths
-            if(!moveForwardSequenceGT4(40, true)){ // if it fails, try again with a fresh pulse of power after moving the motor back a bit.
-                while(true){
-                    retry_index++;
-
-                    // // if we're on our second to last attempt, we should absolutely be considered a beefy boi
-                    // if(retry_index + 1 == _retry_limit){
-                    //     _beefy_boi = true;
-                    // }
-                    
-                    // if we've failed at all, switch to beefy boi
-                    _beefy_boi = true;
-
-                    if(retry_index > _retry_limit){
-                        _lastFeedStatus = PhotonFeeder::FeedResult::COULDNT_REACH;
-                        return false;
-                    }
-                    drive(false);
-                    delay(50);
-                    halt();
-                    if(moveForwardSequenceGT4(40, false)){
-                        break;
-                    }
-                }
+            if(!moveForwardWithRetries(&PhotonFeeder::moveForwardSequenceGT4, 40, retry_index)){
+                return false;
             }
         }
 
         // rem is the value we drive in a last loop to move any remaining distance less than a pip
         if(result.rem > 0){
             //move forward result.rem
-            if(!moveForwardSequenceGT4(result.rem, true)){ // if it fails, try again with a fresh pulse of power after moving the motor back a bit.
-                while(true){
-                    retry_index++;
-
-                    // // if we're on our second to last attempt, we should absolutely be considered a beefy boi
-                    // if(retry_index + 1 == _retry_limit){
-                    //     _beefy_boi = true;
-                    // }
-                    
-                    // if we've failed at all, switch to beefy boi
-                    _beefy_boi = true;
-
-                    if(retry_index > _retry_limit){
-                        _lastFeedStatus = PhotonFeeder::FeedResult::COULDNT_REACH;
-                        return false;
-                    }
-                    drive(false);
-                    delay(50);
-                    halt();
-                    if(moveForwardSequenceGT4(result.rem, false)){
-                        break;
-                    }
-                }
+            if(!moveForwardWithRetries(&PhotonFeeder::moveForwardSequenceGT4, result.rem, retry_index)){
+                return false;
             }
         }
 
@@ -560,6 +474,32 @@ bool PhotonFeeder::moveForward(uint16_t tenths_mm) {
     _lastFeedStatus = PhotonFeeder::FeedResult::SUCCESS;
     return true;
     
+}
+
+bool PhotonFeeder::moveForwardWithRetries(ForwardSequence sequence, uint16_t tenths_mm, int &retry_index) {
+    // Run one forward sequence. If it fails, try again with a fresh pulse of power after moving the motor back a
+    // bit. retry_index counts across all calls of one moveForward() (shared by all pip chunks).
+    // Returns false (and sets _lastFeedStatus) once the retry limit is exceeded.
+    if((this->*sequence)(tenths_mm, true)){
+        return true;
+    }
+    while(true){
+        retry_index++;
+
+        // if we've failed at all, switch to beefy boi
+        _beefy_boi = true;
+
+        if(retry_index > _retry_limit){
+            _lastFeedStatus = PhotonFeeder::FeedResult::COULDNT_REACH;
+            return false;
+        }
+        drive(false);
+        delay(50);
+        halt();
+        if((this->*sequence)(tenths_mm, false)){
+            return true;
+        }
+    }
 }
 
 bool PhotonFeeder::moveBackward(uint16_t tenths_mm) {
@@ -599,15 +539,13 @@ bool PhotonFeeder::moveBackward(uint16_t tenths_mm) {
     }
 }
 
-bool PhotonFeeder::moveForwardSequenceLT2(uint16_t tenths_mm, bool first_attempt) {
+//-----------
+//
+//    FORWARD SEQUENCE BUILDING BLOCKS
+//
+//-----------
 
-    // ONLY USED FOR MOVEMENTS >= 2mm and <= 4mm!
-
-/* moveForwardSequence()
-*   This function actually handles the translation of the mm movement to driving the motor to the right position based on encoder ticks.
-
-    This function should only be called in increments of tenths_mm. It contains all peeling and driving sequencing needed to get accurate 4 mm movements.
- 
+/* Position bookkeeping (used by all move sequences)
 *   We can't just calculate the number of ticks we need to move for the given mm movement requested, and increment our tick count by that much.
 *   Because the tick count is only ever an approximation of the precise mm position, any rounding done from the mm->tick conversion will
 *   result in a significant amount of accrued error.
@@ -615,31 +553,36 @@ bool PhotonFeeder::moveForwardSequenceLT2(uint16_t tenths_mm, bool first_attempt
 *   Instead, we need to use the _mm_ position as ground truth, and only ever use the ticks as only how we command the control loop. We do this by
 *   first finding the new requested position, then converting this to ticks _based on the startup 0 tick position_. This is similar to
 *   absolute positioning vs. relative positioning in Marlin. Every mm->tick calculation needs to be done based on the initial 0 tick position.
-
-    returns true if we reach position within timeout, returns false if we timeout. does NOT set _lastFeedStatus.
-*
 */
-
-    signed long goal_mm, timeout, signed_mm, current_tick;
-
-    timeout = calculateExpectedFeedTime(20, true);
-
-    goal_mm = _position + tenths_mm;
+PhotonFeeder::FeedGoal PhotonFeeder::feedGoal(signed long goal_mm) {
+    FeedGoal goal;
+    goal.mm = goal_mm;
 
     // calculating goal_tick based on absolute, not relative position
+    goal.tick_precise = goal_mm * THOUSANDTHS_TICKS_PER_TENTH_MM;
+    goal.tick = 0;
 
-    // float goal_tick_precise_f = goal_mm * TICKS_PER_TENTH_MM;
-    // volatile int goal_tick_f = round(goal_tick_precise_f);
-
-    signed long goal_tick_precise = goal_mm * THOUSANDTHS_TICKS_PER_TENTH_MM;
-    int goal_tick = 0;
-
-    if (goal_tick_precise >= 0) {
-        goal_tick = (goal_tick_precise + 500) / 1000;   // round a positive number
+    if (goal.tick_precise >= 0) {
+        goal.tick = (goal.tick_precise + 500) / 1000;   // round a positive number
     } else {
-        goal_tick = (goal_tick_precise - 500) / 1000;   // round a negative integer
+        goal.tick = (goal.tick_precise - 500) / 1000;   // round a negative integer
     }
+    return goal;
+}
 
+void PhotonFeeder::adoptGoalPosition(const FeedGoal &goal) {
+    // updating internal position to the goal position because we reached it
+    _position = goal.mm;
+
+    // Resetting internal position count so we dont creep up into our 2,147,483,647 limit on the variable
+    // We can only do this when the exact tick we move to is a whole number so we don't accrue any drift
+    if(goal.tick_precise == goal.tick * 1000){
+        resetEncoderPosition(_encoder->getPosition() - goal.tick);
+        setMmPosition(0);
+    }
+}
+
+void PhotonFeeder::peelForForwardFeed(uint16_t tenths_mm) {
     int peel_delay = PEEL_TIME_PER_TENTH_MM * tenths_mm;
 
     int backlash_backdrive_value = 20;
@@ -662,17 +605,98 @@ bool PhotonFeeder::moveForwardSequenceLT2(uint16_t tenths_mm, bool first_attempt
 
     // ramp drive down to zero
     driveRamp(false, backlash_backdrive_value, 0, 2);
+}
+
+void PhotonFeeder::StallMonitor::reset() {
+    static const int initial_history[20] = {1, 100, 1, 100, 1, 100, 1, 100, 1, 100, 1, 100, 1, 100, 1, 100, 1, 100, 1, 100};
+    memcpy(tick_history, initial_history, sizeof(tick_history));
+    tick_history_index = 0;
+    delta = 5;
+}
+
+void PhotonFeeder::StallMonitor::record(int current_tick) {
+    // Updating tick history for Stall Detection
+    tick_history[tick_history_index] = current_tick;
+
+    if(tick_history_index > 18){
+        tick_history_index = 0;
+    }
+    else{
+        tick_history_index++;
+    }
+
+    int max = *std::max_element(tick_history, tick_history + 20);
+    int min = *std::min_element(tick_history, tick_history + 20);
+    delta = max - min;
+}
+
+void PhotonFeeder::finishForwardMove(StallMonitor &stall, const FeedGoal &goal) {
+    // We've reached the final position! We want to stop as hard and aggressively as possible here.
+
+    // grab position for the sake of measuring coast
+    int brakeTick = _encoder->getPosition();
+
+    // capture time at ss settle start
+    uint32_t ssStartTime = millis();
+
+    // stop
+    brakeDrive();
+
+    // sample ticks until we've hit steady state
+    while (stall.delta > 0 && ssStartTime + 500 > millis()){
+
+        //watching for steady state ticks
+        if(millis() > stall.last_sample_time + 1){
+
+            //getting encoder position
+            signed long current_tick = _encoder->getPosition();
+
+            stall.last_sample_time = millis();
+            stall.record(current_tick);
+        }
+    }            
     
+    int ssTick = _encoder->getPosition();
+    volatile int coast = ssTick - brakeTick;
+
+    // BREAKPOINT BELOW TO MONITOR COAST
+    volatile int test = 0;
+
+    adoptGoalPosition(goal);
+}
+
+//-----------
+//
+//    FORWARD SEQUENCES
+//
+//-----------
+
+/* moveForwardSequence*()
+*   These functions actually handle the translation of the mm movement to driving the motor to the right position based on encoder ticks
+*   (see feedGoal() for the position bookkeeping). Each contains all peeling and driving sequencing for its distance range;
+*   they differ only in timeout, ease-in and drive phases.
+
+    returns true if we reach position within timeout, returns false if we timeout. does NOT set _lastFeedStatus.
+*/
+
+bool PhotonFeeder::moveForwardSequenceLT2(uint16_t tenths_mm, bool first_attempt) {
+
+    // ONLY USED FOR MOVEMENTS < 2mm!
+
+    signed long timeout, current_tick;
+
+    timeout = calculateExpectedFeedTime(20, true);
+
+    const FeedGoal goal = feedGoal(_position + tenths_mm);
+
+    peelForForwardFeed(tenths_mm);
     
     //prepping variables for stall detection
-    int tick_history[20] = {1, 100, 1, 100, 1, 100, 1, 100, 1, 100, 1, 100, 1, 100, 1, 100, 1, 100, 1, 100};
-    int tick_history_index = 0;
-    int delta = 5;
+    StallMonitor stall;
+    stall.reset();
     uint32_t stallCooldownTime = millis();
     bool stallCooldown = false;
-    uint32_t last_stall_position_sample_time = millis();
-
-    bool first_time_phase_two = true;
+    stall.last_sample_time = millis();
 
     // setting start time for measuring timeout
     uint32_t start_time = millis();
@@ -684,18 +708,6 @@ bool PhotonFeeder::moveForwardSequenceLT2(uint16_t tenths_mm, bool first_attempt
         driveValue(true, i);
         delay(1);
     }
-    
-    // if it's not our first attempt, or it's thick tape, we drive full tilt
-    // otherwise, we drive slow to start and ease our way up to the tick
-    // int currentDriveValue;
-    // if(first_attempt == false || _beefy_boi == true){
-    //     currentDriveValue = 255;
-    // }
-    // else {
-    //     currentDriveValue = 30;
-    // }
-
-    //volatile int test = 0;
 
     //monitor loop
     while(millis() < start_time + timeout){
@@ -704,25 +716,12 @@ bool PhotonFeeder::moveForwardSequenceLT2(uint16_t tenths_mm, bool first_attempt
         current_tick = _encoder->getPosition();
         
         // Calculating error
-        int error = goal_tick - current_tick;
+        int error = goal.tick - current_tick;
 
         // Updating tick history for Stall Detection
-        if(millis() > last_stall_position_sample_time + 1){
-
-            last_stall_position_sample_time = millis();
-            tick_history[tick_history_index] = current_tick;
-
-            if(tick_history_index > 18){
-                tick_history_index = 0;
-            }
-            else{
-                tick_history_index++;
-            }
-
-            int max = *std::max_element(tick_history, tick_history + 20);
-            int min = *std::min_element(tick_history, tick_history + 20);
-            delta = max - min;
-
+        if(millis() > stall.last_sample_time + 1){
+            stall.last_sample_time = millis();
+            stall.record(current_tick);
         }
 
         // if we're in beefy boi mode, just drive full tilt
@@ -749,7 +748,7 @@ bool PhotonFeeder::moveForwardSequenceLT2(uint16_t tenths_mm, bool first_attempt
                 }
 
                 // if stall detected, and it's been a minute since we've adjusted currentDriveValue, increase currentDriveValue
-                if(delta < 1 && stallCooldown == false){ 
+                if(stall.delta < 1 && stallCooldown == false){ 
 
                     currentDriveValue = currentDriveValue + 3;
                     if(currentDriveValue > 255){
@@ -766,62 +765,9 @@ bool PhotonFeeder::moveForwardSequenceLT2(uint16_t tenths_mm, bool first_attempt
             }
         }
 
-        // We've reached the final position! We want to stop as hard and aggressively as possible here.
         if(error < 1){
-            
-            // grab position for the sake of measuring coast
-            int brakeTick = _encoder->getPosition();
-
-            // capture time at ss settle start
-            uint32_t ssStartTime = millis();
-
-            // stop
-            brakeDrive();
-
-            // sample ticks until we've hit steady state
-            while (delta > 0 && ssStartTime + 500 > millis()){
-
-                //watching for steady state ticks
-                if(millis() > last_stall_position_sample_time + 1){
-
-                    //getting encoder position
-                    current_tick = _encoder->getPosition();
-
-                    last_stall_position_sample_time = millis();
-                    tick_history[tick_history_index] = current_tick;
-
-                    if(tick_history_index > 18){
-                        tick_history_index = 0;
-                    }
-                    else{
-                        tick_history_index++;
-                    }
-
-                    int max = *std::max_element(tick_history, tick_history + 20);
-                    int min = *std::min_element(tick_history, tick_history + 20);
-                    delta = max-min;
-
-                }
-            }            
-            
-            int ssTick = _encoder->getPosition();
-            volatile int coast = ssTick - brakeTick;
-
-            // BREAKPOINT BELOW TO MONITOR COAST
-            volatile int test = 0;
-
-            // updating internal position to the goal position because we reached it
-            _position = goal_mm;
-
-            // Resetting internal position count so we dont creep up into our 2,147,483,647 limit on the variable
-            // We can only do this when the exact tick we move to is a whole number so we don't accrue any drift
-            if(goal_tick_precise == goal_tick * 1000){
-                resetEncoderPosition(_encoder->getPosition() - goal_tick);
-                setMmPosition(0);
-            }
-
+            finishForwardMove(stall, goal);
             return true;
-
         }
 
     }
@@ -835,74 +781,20 @@ bool PhotonFeeder::moveForwardSequence2_4(uint16_t tenths_mm, bool first_attempt
 
     // ONLY USED FOR MOVEMENTS >= 2mm and <= 4mm!
 
-/* moveForwardSequence()
-*   This function actually handles the translation of the mm movement to driving the motor to the right position based on encoder ticks.
-
-    This function should only be called in increments of tenths_mm. It contains all peeling and driving sequencing needed to get accurate 4 mm movements.
- 
-*   We can't just calculate the number of ticks we need to move for the given mm movement requested, and increment our tick count by that much.
-*   Because the tick count is only ever an approximation of the precise mm position, any rounding done from the mm->tick conversion will
-*   result in a significant amount of accrued error.
-*
-*   Instead, we need to use the _mm_ position as ground truth, and only ever use the ticks as only how we command the control loop. We do this by
-*   first finding the new requested position, then converting this to ticks _based on the startup 0 tick position_. This is similar to
-*   absolute positioning vs. relative positioning in Marlin. Every mm->tick calculation needs to be done based on the initial 0 tick position.
-
-    returns true if we reach position within timeout, returns false if we timeout. does NOT set _lastFeedStatus.
-*
-*/
-
-    signed long goal_mm, timeout, signed_mm, current_tick;
+    signed long timeout, current_tick;
 
     timeout = calculateExpectedFeedTime(40, true);
 
-    goal_mm = _position + tenths_mm;
+    const FeedGoal goal = feedGoal(_position + tenths_mm);
 
-    // calculating goal_tick based on absolute, not relative position
-
-    // float goal_tick_precise_f = goal_mm * TICKS_PER_TENTH_MM;
-    // volatile int goal_tick_f = round(goal_tick_precise_f);
-
-    signed long goal_tick_precise = goal_mm * THOUSANDTHS_TICKS_PER_TENTH_MM;
-    int goal_tick = 0;
-
-    if (goal_tick_precise >= 0) {
-        goal_tick = (goal_tick_precise + 500) / 1000;   // round a positive number
-    } else {
-        goal_tick = (goal_tick_precise - 500) / 1000;   // round a negative integer
-    }
-
-    int peel_delay = PEEL_TIME_PER_TENTH_MM * tenths_mm;
-
-    int backlash_backdrive_value = 20;
-
-    //drive backwards to counteract backlash
-    driveRamp(false, 0, backlash_backdrive_value, 2);
-
-    delay(100);
-
-    int peel_tension_release_time = 400;
-
-    // peel film for calculated time
-    peelValue(true, 255);
-    delay(peel_delay + peel_tension_release_time);
-
-    peelValue(false, 255);
-    delay(peel_tension_release_time);
-    brakePeel();
-
-
-    // ramp drive down to zero
-    driveRamp(false, backlash_backdrive_value, 0, 2);
-    
+    peelForForwardFeed(tenths_mm);
     
     //prepping variables for stall detection
-    int tick_history[20] = {1, 100, 1, 100, 1, 100, 1, 100, 1, 100, 1, 100, 1, 100, 1, 100, 1, 100, 1, 100};
-    int tick_history_index = 0;
-    int delta = 5;
+    StallMonitor stall;
+    stall.reset();
     uint32_t stallCooldownTime = millis();
     bool stallCooldown = false;
-    uint32_t last_stall_position_sample_time = millis();
+    stall.last_sample_time = millis();
 
     bool first_time_phase_two = true;
 
@@ -916,18 +808,6 @@ bool PhotonFeeder::moveForwardSequence2_4(uint16_t tenths_mm, bool first_attempt
         driveValue(true, i);
         delay(1);
     }
-    
-    // if it's not our first attempt, or it's thick tape, we drive full tilt
-    // otherwise, we drive slow to start and ease our way up to the tick
-    // int currentDriveValue;
-    // if(first_attempt == false || _beefy_boi == true){
-    //     currentDriveValue = 255;
-    // }
-    // else {
-    //     currentDriveValue = 30;
-    // }
-
-    //volatile int test = 0;
 
     //monitor loop
     while(millis() < start_time + timeout){
@@ -936,25 +816,12 @@ bool PhotonFeeder::moveForwardSequence2_4(uint16_t tenths_mm, bool first_attempt
         current_tick = _encoder->getPosition();
         
         // Calculating error
-        int error = goal_tick - current_tick;
+        int error = goal.tick - current_tick;
 
         // Updating tick history for Stall Detection
-        if(millis() > last_stall_position_sample_time + 1){
-
-            last_stall_position_sample_time = millis();
-            tick_history[tick_history_index] = current_tick;
-
-            if(tick_history_index > 18){
-                tick_history_index = 0;
-            }
-            else{
-                tick_history_index++;
-            }
-
-            int max = *std::max_element(tick_history, tick_history + 20);
-            int min = *std::min_element(tick_history, tick_history + 20);
-            delta = max - min;
-
+        if(millis() > stall.last_sample_time + 1){
+            stall.last_sample_time = millis();
+            stall.record(current_tick);
         }
 
         // if we're in beefy boi mode, just drive full tilt
@@ -986,7 +853,7 @@ bool PhotonFeeder::moveForwardSequence2_4(uint16_t tenths_mm, bool first_attempt
                 }
 
                 // if stall detected, and it's been a minute since we've adjusted currentDriveValue, increase currentDriveValue
-                if(delta <= 5 && stallCooldown == false){ 
+                if(stall.delta <= 5 && stallCooldown == false){ 
 
                     currentDriveValue = currentDriveValue + 5;
                     if(currentDriveValue > 255){
@@ -1024,7 +891,7 @@ bool PhotonFeeder::moveForwardSequence2_4(uint16_t tenths_mm, bool first_attempt
                 }
 
                 // if stall detected, and it's been a minute since we've adjusted currentDriveValue, increase currentDriveValue
-                if(delta < 1 && stallCooldown == false){ 
+                if(stall.delta < 1 && stallCooldown == false){ 
 
                     currentDriveValue = currentDriveValue + 1;
                     if(currentDriveValue > 255){
@@ -1041,62 +908,9 @@ bool PhotonFeeder::moveForwardSequence2_4(uint16_t tenths_mm, bool first_attempt
             }
         }
 
-        // We've reached the final position! We want to stop as hard and aggressively as possible here.
         if(error < 1){
-            
-            // grab position for the sake of measuring coast
-            int brakeTick = _encoder->getPosition();
-
-            // capture time at ss settle start
-            uint32_t ssStartTime = millis();
-
-            // stop
-            brakeDrive();
-
-            // sample ticks until we've hit steady state
-            while (delta > 0 && ssStartTime + 500 > millis()){
-
-                //watching for steady state ticks
-                if(millis() > last_stall_position_sample_time + 1){
-
-                    //getting encoder position
-                    current_tick = _encoder->getPosition();
-
-                    last_stall_position_sample_time = millis();
-                    tick_history[tick_history_index] = current_tick;
-
-                    if(tick_history_index > 18){
-                        tick_history_index = 0;
-                    }
-                    else{
-                        tick_history_index++;
-                    }
-
-                    int max = *std::max_element(tick_history, tick_history + 20);
-                    int min = *std::min_element(tick_history, tick_history + 20);
-                    delta = max-min;
-
-                }
-            }            
-            
-            int ssTick = _encoder->getPosition();
-            volatile int coast = ssTick - brakeTick;
-
-            // BREAKPOINT BELOW TO MONITOR COAST
-            volatile int test = 0;
-
-            // updating internal position to the goal position because we reached it
-            _position = goal_mm;
-
-            // Resetting internal position count so we dont creep up into our 2,147,483,647 limit on the variable
-            // We can only do this when the exact tick we move to is a whole number so we don't accrue any drift
-            if(goal_tick_precise == goal_tick * 1000){
-                resetEncoderPosition(_encoder->getPosition() - goal_tick);
-                setMmPosition(0);
-            }
-
+            finishForwardMove(stall, goal);
             return true;
-
         }
 
     }
@@ -1109,74 +923,23 @@ bool PhotonFeeder::moveForwardSequence2_4(uint16_t tenths_mm, bool first_attempt
 
 
 bool PhotonFeeder::moveForwardSequenceGT4(uint16_t tenths_mm, bool first_attempt) {
-/* moveForwardSequence()
-*   This function actually handles the translation of the mm movement to driving the motor to the right position based on encoder ticks.
 
-    This function should only be called in increments of tenths_mm. It contains all peeling and driving sequencing needed to get accurate 4 mm movements.
- 
-*   We can't just calculate the number of ticks we need to move for the given mm movement requested, and increment our tick count by that much.
-*   Because the tick count is only ever an approximation of the precise mm position, any rounding done from the mm->tick conversion will
-*   result in a significant amount of accrued error.
-*
-*   Instead, we need to use the _mm_ position as ground truth, and only ever use the ticks as only how we command the control loop. We do this by
-*   first finding the new requested position, then converting this to ticks _based on the startup 0 tick position_. This is similar to
-*   absolute positioning vs. relative positioning in Marlin. Every mm->tick calculation needs to be done based on the initial 0 tick position.
+    // USED FOR THE PIP CHUNKS OF MOVEMENTS > 4mm (tenths_mm <= 40 per call)
 
-    returns true if we reach position within timeout, returns false if we timeout. does NOT set _lastFeedStatus.
-*
-*/
-
-    signed long goal_mm, timeout, signed_mm, current_tick;
+    signed long timeout, current_tick;
 
     timeout = tenths_mm * TIMEOUT_TIME_PER_TENTH_MM;
 
-    goal_mm = _position + tenths_mm;
+    const FeedGoal goal = feedGoal(_position + tenths_mm);
 
-    // calculating goal_tick based on absolute, not relative position
-
-    // float goal_tick_precise_f = goal_mm * TICKS_PER_TENTH_MM;
-    // volatile int goal_tick_f = round(goal_tick_precise_f);
-
-    signed long goal_tick_precise = goal_mm * THOUSANDTHS_TICKS_PER_TENTH_MM;
-    int goal_tick = 0;
-
-    if (goal_tick_precise >= 0) {
-        goal_tick = (goal_tick_precise + 500) / 1000;   // round a positive number
-    } else {
-        goal_tick = (goal_tick_precise - 500) / 1000;   // round a negative integer
-    }
-
-    int peel_delay = PEEL_TIME_PER_TENTH_MM * tenths_mm;
-
-    int backlash_backdrive_value = 20;
-
-    //drive backwards to counteract backlash
-    driveRamp(false, 0, backlash_backdrive_value, 2);
-
-    delay(100);
-
-    int peel_tension_release_time = 400;
-
-    // peel film for calculated time
-    peelValue(true, 255);
-    delay(peel_delay + peel_tension_release_time);
-
-    peelValue(false, 255);
-    delay(peel_tension_release_time);
-    brakePeel();
-
-
-    // ramp drive down to zero
-    driveRamp(false, backlash_backdrive_value, 0, 2);
-    
+    peelForForwardFeed(tenths_mm);
     
     //prepping variables for stall detection
-    int tick_history[20] = {1, 100, 1, 100, 1, 100, 1, 100, 1, 100, 1, 100, 1, 100, 1, 100, 1, 100, 1, 100};
-    int tick_history_index = 0;
-    int delta = 5;
+    StallMonitor stall;
+    stall.reset();
     uint32_t stallCooldownTime = millis();
     bool stallCooldown = false;
-    uint32_t last_stall_position_sample_time = millis();
+    stall.last_sample_time = millis();
 
     bool first_time_phase_two = true;
 
@@ -1190,18 +953,6 @@ bool PhotonFeeder::moveForwardSequenceGT4(uint16_t tenths_mm, bool first_attempt
         driveValue(true, i);
         delay(1);
     }
-    
-    // if it's not our first attempt, or it's thick tape, we drive full tilt
-    // otherwise, we drive slow to start and ease our way up to the tick
-    // int currentDriveValue;
-    // if(first_attempt == false || _beefy_boi == true){
-    //     currentDriveValue = 255;
-    // }
-    // else {
-    //     currentDriveValue = 30;
-    // }
-
-    //volatile int test = 0;
 
     //monitor loop
     while(millis() < start_time + timeout){
@@ -1210,25 +961,12 @@ bool PhotonFeeder::moveForwardSequenceGT4(uint16_t tenths_mm, bool first_attempt
         current_tick = _encoder->getPosition();
         
         // Calculating error
-        int error = goal_tick - current_tick;
+        int error = goal.tick - current_tick;
 
         // Updating tick history for Stall Detection
-        if(millis() > last_stall_position_sample_time + 1){
-
-            last_stall_position_sample_time = millis();
-            tick_history[tick_history_index] = current_tick;
-
-            if(tick_history_index > 18){
-                tick_history_index = 0;
-            }
-            else{
-                tick_history_index++;
-            }
-
-            int max = *std::max_element(tick_history, tick_history + 20);
-            int min = *std::min_element(tick_history, tick_history + 20);
-            delta = max - min;
-
+        if(millis() > stall.last_sample_time + 1){
+            stall.last_sample_time = millis();
+            stall.record(current_tick);
         }
 
         if(_beefy_boi){
@@ -1257,7 +995,7 @@ bool PhotonFeeder::moveForwardSequenceGT4(uint16_t tenths_mm, bool first_attempt
                 }
 
                 // if stall detected, and it's been a minute since we've adjusted currentDriveValue, increase currentDriveValue
-                if(delta < 1 && stallCooldown == false){ 
+                if(stall.delta < 1 && stallCooldown == false){ 
 
                     currentDriveValue = currentDriveValue + 4;
                     if(currentDriveValue > 255){
@@ -1273,65 +1011,10 @@ bool PhotonFeeder::moveForwardSequenceGT4(uint16_t tenths_mm, bool first_attempt
             }
 
         }
-            
 
-
-        // We've reached the final position! We want to stop as hard and aggressively as possible here.
         if(error < 1){
-            
-            // grab position for the sake of measuring coast
-            int brakeTick = _encoder->getPosition();
-
-            // capture time at ss settle start
-            uint32_t ssStartTime = millis();
-
-            // stop
-            brakeDrive();
-
-            // sample ticks until we've hit steady state
-            while (delta > 0 && ssStartTime + 500 > millis()){
-
-                //watching for steady state ticks
-                if(millis() > last_stall_position_sample_time + 1){
-
-                    //getting encoder position
-                    current_tick = _encoder->getPosition();
-
-                    last_stall_position_sample_time = millis();
-                    tick_history[tick_history_index] = current_tick;
-
-                    if(tick_history_index > 18){
-                        tick_history_index = 0;
-                    }
-                    else{
-                        tick_history_index++;
-                    }
-
-                    int max = *std::max_element(tick_history, tick_history + 20);
-                    int min = *std::min_element(tick_history, tick_history + 20);
-                    delta = max-min;
-
-                }
-            }            
-            
-            int ssTick = _encoder->getPosition();
-            volatile int coast = ssTick - brakeTick;
-
-            // BREAKPOINT BELOW TO MONITOR COAST
-            volatile int test = 0;
-
-            // updating internal position to the goal position because we reached it
-            _position = goal_mm;
-
-            // Resetting internal position count so we dont creep up into our 2,147,483,647 limit on the variable
-            // We can only do this when the exact tick we move to is a whole number so we don't accrue any drift
-            if(goal_tick_precise == goal_tick * 1000){
-                resetEncoderPosition(_encoder->getPosition() - goal_tick);
-                setMmPosition(0);
-            }
-
+            finishForwardMove(stall, goal);
             return true;
-
         }
 
     }
@@ -1340,6 +1023,7 @@ bool PhotonFeeder::moveForwardSequenceGT4(uint16_t tenths_mm, bool first_attempt
 
     return false;
 }
+
 
 bool PhotonFeeder::moveBackwardSequence(bool forward, uint16_t tenths_mm) {
 /* moveInternal()
@@ -1366,18 +1050,8 @@ bool PhotonFeeder::moveBackwardSequence(bool forward, uint16_t tenths_mm) {
         goal_mm = _position - tenths_mm;
     }
 
-    // calculating goal_tick based on absolute, not relative position
-    // float goal_tick_precise = goal_mm * TICKS_PER_TENTH_MM;
-    // int goal_tick = round(goal_tick_precise);
-
-    long goal_tick_precise = goal_mm * THOUSANDTHS_TICKS_PER_TENTH_MM;
-    int goal_tick = 0;
-
-    if (goal_tick_precise > 0) {
-        goal_tick = (goal_tick_precise + 500) / 1000;   // round a positive number
-    } else {
-        goal_tick = (goal_tick_precise - 500) / 1000;   // round a negative integer
-    }
+    // calculating goal_tick based on absolute, not relative position (see feedGoal())
+    const FeedGoal goal = feedGoal(goal_mm);
 
     uint32_t start_time = millis();
 
@@ -1394,24 +1068,18 @@ bool PhotonFeeder::moveBackwardSequence(bool forward, uint16_t tenths_mm) {
         int error;
         
         if(forward){
-            error = goal_tick - current_tick;
+            error = goal.tick - current_tick;
         }
         else{
-            error = current_tick - goal_tick;
+            error = current_tick - goal.tick;
         }
         if (error < 0){
             brakeDrive();
-            _position = goal_mm;
 
             //delay to let position settle
             delay(50);
 
-            // Resetting internal position count so we dont creep up into our 2,147,483,647 limit on the variable
-            // We can only do this when the exact tick we move to is a whole number so we don't accrue any drift
-            if(goal_tick_precise == goal_tick * 1000){
-                resetEncoderPosition(_encoder->getPosition() - goal_tick);
-                setMmPosition(0);
-            }
+            adoptGoalPosition(goal);
 
             return true;
         }
