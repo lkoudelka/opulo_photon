@@ -2,7 +2,7 @@
 
 *Prepared 2026-11-05, before hardware access. Status: **simulation-verified, app built, not yet run on hardware**.*
 
-**Scope: 8 mm / 12 mm feeders** (original architecture, STM32F031x6, 32 KB / 4 KB, firmware line `main`, release v1.0.7). The 16/24 mm "2u" feeders (STM32F030C8, 64 KB / 8 KB, branch `2u`) use other pins and USART2; a PBL board configuration for them is a separate, still-open step.
+**Scope: 8 mm / 12 mm feeders** (original architecture, STM32F031x6, 32 KB / 4 KB, firmware line `main`, release v1.0.7). The 16/24 mm "2u" feeders (STM32F030C8, 64 KB / 8 KB, branch `2u`, other pins, RS-485 on USART2) are **not supported**: all feeders in use here are first generation (F031).
 
 Feeders stay mounted. The PC talks to the LumenPnP motherboard over USB, and each feeder packet goes through the existing Marlin G-code `M485 <hex>` (57600 8N1, Photon framing, ≤ 32 B per packet). **Marlin, OpenPnP and the release `.bin` files are not modified.**
 
