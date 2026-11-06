@@ -32,6 +32,14 @@ import time
 import zlib
 
 log = logging.getLogger("busflash")
+flog = logging.getLogger("busflash.file")     # file only (--log): what is printed to the screen, too
+flog.propagate = False
+
+
+def report(msg: str) -> None:
+    """Result line: to the screen and into the --log file."""
+    print(msg, flush=True)
+    flog.info("%s", msg)
 
 # --- protocol constants (mirror of bootloader/pbl.h) -----------------------
 APP_MAX = 31 * 1024
@@ -92,6 +100,7 @@ class MarlinBus:
         self.ser.close()
 
     def gcode(self, line: str, timeout: float = 3.0) -> list[str]:
+        log.debug(">> %s", line)
         self.ser.write((line + "\n").encode())
         lines, buf, end = [], b"", time.monotonic() + timeout
         while time.monotonic() < end:
@@ -101,6 +110,7 @@ class MarlinBus:
                 s = raw.decode(errors="replace").strip()
                 if not s:
                     continue
+                log.debug("<< %s", s)
                 if s.startswith("ok"):
                     return lines
                 if s.startswith("echo:busy"):
@@ -357,7 +367,7 @@ def scan(bus: MarlinBus, first: int, last: int) -> list[FeederInfo]:
             continue
         if info:
             found.append(info)
-            print(info.describe(), flush=True)
+            report(info.describe())
     return found
 
 
@@ -407,18 +417,18 @@ def cmd_ping(bus, a):
         else:
             times.append(dt)
     if not times:
-        print(f"addr {a.addr}: no reply in {a.count} tries")
+        report(f"addr {a.addr}: no reply in {a.count} tries")
         return 1
     times.sort()
     med = times[len(times) // 2]
-    print(f"addr {a.addr}: {len(times)}/{a.count} replies, {lost} lost; RTT min {times[0]*1000:.1f} / median "
+    report(f"addr {a.addr}: {len(times)}/{a.count} replies, {lost} lost; RTT min {times[0]*1000:.1f} / median "
           f"{med*1000:.1f} / max {times[-1]*1000:.1f} ms")
     size = 24740
     if a.image:
         size = len(Image.load(a.image).data)
     writes, pages = -(-size // WRITE_MAX), -(-size // PAGE)
     est = writes * med + pages * (med + T_ERASE) + T_COMMIT + T_BOOT + 40 * med
-    print(f"estimated bus update of a {size} B image: about {est:.0f} s per feeder "
+    report(f"estimated bus update of a {size} B image: about {est:.0f} s per feeder "
           f"({writes} write packets, {pages} pages)")
     return 0
 
@@ -447,9 +457,9 @@ def cmd_bus(a):
         else:
             targets = a.addr
         if not targets:
-            print("nothing to do")
+            report("nothing to do")
             return 0
-        print(f"image '{img.version}' ({len(img.data)} B) -> feeders {targets}")
+        report(f"image '{img.version}' ({len(img.data)} B) -> feeders {targets}")
         if a.dry_run:
             return 0
         if not a.yes and input("proceed? [y/N] ").strip().lower() != "y":
@@ -463,10 +473,10 @@ def cmd_bus(a):
                 failed.append(t)
         log.info("packets %d, retries %d", bus.stats["packets"], bus.stats["retries"])
         if failed:
-            print(f"FAILED: {failed}  (a feeder with a magenta LED is waiting in the bus "
+            report(f"FAILED: {failed}  (a feeder with a magenta LED is waiting in the bus "
                   "loader: run `recover IMAGE --addr N`)")
             return 2
-        print("all done")
+        report("all done")
         return 0
     finally:
         bus.close()
@@ -508,9 +518,11 @@ def main(argv=None):
     logging.basicConfig(level=logging.DEBUG if a.verbose else logging.INFO,
                         format="%(asctime)s %(levelname)s %(message)s", handlers=handlers)
     if a.log:
-        handlers[1].setLevel(logging.DEBUG)
+        handlers[1].setLevel(logging.DEBUG)          # the log file gets every G-code line and reply
         logging.getLogger().setLevel(logging.DEBUG)
         handlers[0].setLevel(logging.DEBUG if a.verbose else logging.INFO)
+        flog.addHandler(handlers[1])
+        log.debug("busflash %s", " ".join(argv if argv is not None else sys.argv[1:]))
 
     if a.cmd == "info":
         return cmd_info(a)
