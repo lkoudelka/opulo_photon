@@ -155,3 +155,19 @@ The simulation does **not** cover:
 - flash timing.
 
 Those are the B-tests above.
+
+## 7. Bench tools: logging and feed timing (2026-11-06)
+- **Logging:** `photon_busflash.py --log FILE` (the `photon-busflash.sh` wrapper always passes one: `~/claude/opulo/_logs/busflash-*.log`) records **every G-code line and reply** (DEBUG) and every result line. Before 2026-11-06 the file stayed empty.
+- **Feed timing:** `host/photon_feedtest.py --addr N [--mm 4] [--count 3] [--back] [--restart] [--log FILE]` measures how a feeder moves. OpenPnP must be disconnected.
+  - It **moves the tape** of that one feeder. A feed command is sent exactly once (never retried), so a lost reply cannot cause a second feed.
+  - The motion time is measured from the feed command's reply to the first answered `MOVE_FEED_STATUS` (resolution about one bus round trip, ~60 ms).
+  - `--restart` restarts the feeder application through its bus loader (enter + RESET, nothing erased), so the feeds start from the power-on state.
+- **Bench result:** v1.0.7 switches into its *beefy* mode (faster, more aggressive drive) after any feed that needed a retry, or by a double click on the top button, and stays there until power-off.
+
+  | Feeder | 4 mm feed |
+  |---|---|
+  | 50, v1.0.7-pbl1, beefy | 2.2 s |
+  | 50, v1.0.7-pbl1, after `--restart` | 3.14 s |
+  | 48, official v1.0.7 | 3.35 s |
+
+  The motion code of v1.0.7-pbl1 is instruction-identical to official v1.0.7 (only shifted constant addresses), so the difference is beefy mode, not the build.
